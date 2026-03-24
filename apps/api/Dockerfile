@@ -19,7 +19,7 @@ RUN cd packages/db && npx prisma generate
 RUN cd apps/api && npm run build
 
 # Final Image
-FROM node:20-slim
+FROM node:20
 
 WORKDIR /app
 
