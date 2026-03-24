@@ -23,9 +23,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Copy the whole node_modules from builder
 COPY --from=builder /app/node_modules ./node_modules
+# Copy the compiled API code
 COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/package.json ./package.json
+# Copy the DB package (crucial for workspace resolution)
+COPY --from=builder /app/packages/db ./packages/db
+# Copy package.json files
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 
 EXPOSE 3000
 
