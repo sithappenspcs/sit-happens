@@ -1,0 +1,23 @@
+{
+  "name": "sit-happens",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run start:dev --workspace=apps/api",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
+    "build": "npm run build --workspaces",
+    "db:generate": "npm run prisma:generate --workspace=packages/db",
+    "db:migrate": "npm run prisma:migrate --workspace=packages/db",
+    "db:seed": "npm run prisma:seed --workspace=packages/db",
+    "db:studio": "npm run prisma:studio --workspace=packages/db"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}

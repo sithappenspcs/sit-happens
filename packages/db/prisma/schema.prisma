@@ -1,0 +1,666 @@
+// This is your Prisma schema file for Sit Happens Pet Care Services
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  admin
+  staff
+  client
+}
+
+enum PriceUnit {
+  per_hour
+  per_night
+  per_visit
+  flat
+}
+
+enum ServiceCategory {
+  drop_in
+  overnight
+  house_sit
+  daycare
+  addon
+}
+
+enum ConstraintType {
+  absence_window
+  continuous_presence
+  none
+}
+
+enum PriceModifierCalculationType {
+  flat
+  percentage
+  per_unit
+}
+
+enum ZoneType {
+  primary
+  secondary
+  outer
+}
+
+enum BookingStatus {
+  pending
+  approved
+  active
+  completed
+  cancelled
+  declined
+}
+
+enum PaymentStatus {
+  pending
+  authorized
+  captured
+  refunded
+  failed
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  paid
+  overdue
+  void
+}
+
+enum PayoutStatus {
+  pending
+  paid
+}
+
+enum VisitCheckInType {
+  check_in
+  check_out
+  update
+}
+
+enum AvailabilitySource {
+  manual
+  google_calendar
+}
+
+enum SyncDirection {
+  push
+  pull
+  both
+}
+
+enum CalendarSyncAction {
+  push_create
+  push_update
+  push_delete
+  pull_block
+  pull_conflict
+  error
+}
+
+enum NotificationChannel {
+  email
+  in_app
+  sms
+}
+
+enum IncidentSeverity {
+  low
+  medium
+  high
+}
+
+enum VaccinationStatus {
+  current
+  expired
+  unknown
+}
+
+// ============================================================
+// USERS & ROLES
+// ============================================================
+
+model User {
+  id        Int      @id @default(autoincrement())
+  role      UserRole
+  name      String
+  email     String   @unique
+  phone     String?
+  avatarUrl String?  @map("avatar_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Password & Auth
+  passwordHash     String?   @map("password_hash")
+  magicLinkToken   String?   @unique @map("magic_link_token")
+  magicLinkExpires DateTime? @map("magic_link_expires")
+
+  // Relationships
+  staff                Staff?
+  client               Client?
+  googleCalendarTokens GoogleCalendarToken?
+  calendarEventMaps    CalendarEventMap[]
+  calendarSyncLogs     CalendarSyncLog[]
+  notifications        Notification[]
+  termsLogs            TermsAcceptanceLog[]
+  auditLogsAsAdmin     AuditLog[]
+
+  @@map("users")
+}
+
+model Staff {
+  id                    Int      @id @default(autoincrement())
+  userId                Int      @unique @map("user_id")
+  // base_location stored as POINT — use raw queries with PostGIS
+  baseLocationLat       Float?   @map("base_location_lat")
+  baseLocationLng       Float?   @map("base_location_lng")
+  radiusKm              Float    @default(20) @map("radius_km")
+  commissionPct         Float    @default(0.7) @map("commission_pct")
+  monthlyOvernightTarget Int?    @map("monthly_overnight_target")
+  bio                   String?
+  certifications        String[] @default([])
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  user              User              @relation(fields: [userId], references: [id])
+  bookings          Booking[]
+  sitterAvailability SitterAvailability[]
+  visitCheckIns     VisitCheckIn[]
+  incidentReports   IncidentReport[]
+  keyLogs           KeyLog[]
+  staffPayouts      StaffPayout[]
+
+  @@map("staff")
+}
+
+model Client {
+  id                   Int      @id @default(autoincrement())
+  userId               Int      @unique @map("user_id")
+  address              String?
+  // location stored as lat/lng — PostGIS POINT via raw queries
+  locationLat          Float?   @map("location_lat")
+  locationLng          Float?   @map("location_lng")
+  zoneId               Int?     @map("zone_id")
+  emergencyContactName String?  @map("emergency_contact_name")
+  emergencyContactPhone String? @map("emergency_contact_phone")
+  internalNotes        String?  @map("internal_notes")
+  referralCode         String?  @unique @map("referral_code")
+  referredByClientId   Int?     @map("referred_by_client_id")
+  creditBalance        Decimal  @default(0) @map("credit_balance") @db.Decimal(10, 2)
+  lifetimeValue        Decimal  @default(0) @map("lifetime_value") @db.Decimal(10, 2)
+  isFlagged            Boolean  @default(false) @map("is_flagged")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  user             User       @relation(fields: [userId], references: [id])
+  zone             Zone?      @relation(fields: [zoneId], references: [id])
+  referredBy       Client?    @relation("ClientReferrals", fields: [referredByClientId], references: [id])
+  referrals        Client[]   @relation("ClientReferrals")
+  pets             Pet[]
+  bookings         Booking[]
+  invoices         Invoice[]
+  keyLogs          KeyLog[]
+
+  @@map("clients")
+}
+
+model Pet {
+  id                       Int               @id @default(autoincrement())
+  clientId                 Int               @map("client_id")
+  name                     String
+  species                  String
+  breed                    String?
+  weightKg                 Float?            @map("weight_kg")
+  dob                      DateTime?         @db.Date
+  photoUrl                 String?           @map("photo_url")
+  vetName                  String?           @map("vet_name")
+  vetClinic                String?           @map("vet_clinic")
+  vetPhone                 String?           @map("vet_phone")
+  vaccinationStatus        VaccinationStatus @default(unknown) @map("vaccination_status")
+  vaccinationExpiry        DateTime?         @map("vaccination_expiry") @db.Date
+  emergencyVetAuthAmount   Decimal?          @map("emergency_vet_auth_amount") @db.Decimal(10, 2)
+  medicalConditions        String?           @map("medical_conditions")
+  medications              String?
+  feedingInstructions      String?           @map("feeding_instructions")
+  behavioralNotes          String?           @map("behavioral_notes")
+  isActive                 Boolean           @default(true) @map("is_active")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("pets")
+}
+
+// ============================================================
+// SERVICES & PACKAGES
+// ============================================================
+
+model ServicePackage {
+  id                      Int             @id @default(autoincrement())
+  name                    String
+  slug                    String          @unique
+  tagline                 String?
+  description             String?
+  basePrice               Decimal         @map("base_price") @db.Decimal(10, 2)
+  priceUnit               PriceUnit       @map("price_unit")
+  durationMinutes         Int             @map("duration_minutes")
+  category                ServiceCategory
+  isOvernight             Boolean         @default(false) @map("is_overnight")
+  maxAbsenceMinutes       Int?            @map("max_absence_minutes")
+  constraintType          ConstraintType  @default(none) @map("constraint_type")
+  allowsConcurrentBookings Boolean        @default(false) @map("allows_concurrent_bookings")
+  maxConcurrentClients    Int?            @map("max_concurrent_clients")
+  travelTimeBudgetMinutes Int?            @map("travel_time_budget_minutes")
+  isActive                Boolean         @default(true) @map("is_active")
+  displayOrder            Int             @default(0) @map("display_order")
+  coverImageUrl           String?         @map("cover_image_url")
+  galleryImages           String[]        @default([]) @map("gallery_images")
+  includedFeatures        String[]        @default([]) @map("included_features")
+  petTypesAllowed         String[]        @default([]) @map("pet_types_allowed")
+  maxPets                 Int?            @map("max_pets")
+  minBufferMinutes        Int             @default(30) @map("min_buffer_minutes")
+  createdAt               DateTime        @default(now()) @map("created_at")
+  updatedAt               DateTime        @updatedAt @map("updated_at")
+
+  bookings             Booking[]
+  constraintLogs       BookingConstraintLog[]
+
+  @@map("service_packages")
+}
+
+model PriceModifier {
+  id                  Int                          @id @default(autoincrement())
+  modifierType        String                       @map("modifier_type") // 'distance' | 'holiday' | 'rush' | 'multi_pet' | 'promo' | 'custom'
+  label               String
+  calculationType     PriceModifierCalculationType @map("calculation_type")
+  value               Decimal                      @db.Decimal(10, 4)
+  conditionsJson      Json?                        @map("conditions_json")
+  appliesToPackages   Int[]                        @default([]) @map("applies_to_packages")
+  isActive            Boolean                      @default(true) @map("is_active")
+
+  @@map("price_modifiers")
+}
+
+model PromoCode {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique
+  modifierType String    @map("modifier_type") // 'flat' | 'percentage'
+  value        Decimal   @db.Decimal(10, 2)
+  maxUses      Int?      @map("max_uses")
+  usesCount    Int       @default(0) @map("uses_count")
+  expiresAt    DateTime? @map("expires_at")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  @@map("promo_codes")
+}
+
+// ============================================================
+// ZONES
+// ============================================================
+
+model Zone {
+  id              Int      @id @default(autoincrement())
+  name            String
+  // polygon stored via PostGIS — geometry stored as text for Prisma compatibility
+  // actual PostGIS geometry managed via raw SQL migration
+  zoneType        ZoneType @map("zone_type")
+  surchageModifier Decimal @default(0) @map("surcharge_modifier") @db.Decimal(5, 4)
+  priorityLevel   Int      @default(1) @map("priority_level")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  clients Client[]
+
+  @@map("zones")
+}
+
+// ============================================================
+// BOOKINGS
+// ============================================================
+
+model Booking {
+  id              Int           @id @default(autoincrement())
+  clientId        Int           @map("client_id")
+  staffId         Int?          @map("staff_id")
+  packageId       Int           @map("package_id")
+  anchorBookingId Int?          @map("anchor_booking_id")
+  petIds          Int[]         @map("pet_ids")
+  startTime       DateTime      @map("start_time")
+  endTime         DateTime      @map("end_time")
+  status          BookingStatus @default(pending)
+  basePrice       Decimal       @map("base_price") @db.Decimal(10, 2)
+  modifiersApplied Json?        @map("modifiers_applied")
+  totalCharged    Decimal       @default(0) @map("total_charged") @db.Decimal(10, 2)
+  staffPayout     Decimal       @default(0) @map("staff_payout") @db.Decimal(10, 2)
+  netProfit       Decimal       @default(0) @map("net_profit") @db.Decimal(10, 2)
+  clientNotes     String?       @map("client_notes")
+  adminNotes      String?       @map("admin_notes")
+  homeAccessInstructions String? @map("home_access_instructions")
+  approvedBy      Int?          @map("approved_by")
+  approvedAt      DateTime?     @map("approved_at")
+  cancelledAt     DateTime?     @map("cancelled_at")
+  cancellationReason String?    @map("cancellation_reason")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  client             Client               @relation(fields: [clientId], references: [id])
+  staff              Staff?               @relation(fields: [staffId], references: [id])
+  package            ServicePackage       @relation(fields: [packageId], references: [id])
+  anchorBooking      Booking?             @relation("ConcurrentBookings", fields: [anchorBookingId], references: [id])
+  concurrentBookings Booking[]            @relation("ConcurrentBookings")
+  payment            Payment?
+  invoice            Invoice?
+  visitCheckIns      VisitCheckIn[]
+  constraintLogs     BookingConstraintLog[]
+  calendarEventMaps  CalendarEventMap[]
+  calendarSyncLogs   CalendarSyncLog[]
+  incidentReports    IncidentReport[]
+  staffPayoutRelation StaffPayout?      @relation(fields: [staffPayoutId], references: [id])
+  staffPayoutId      Int?              @map("staff_payout_id")
+
+  @@index([staffId, startTime, endTime])
+  @@index([clientId])
+  @@index([status])
+  @@map("bookings")
+}
+
+// ============================================================
+// PAYMENTS & INVOICES
+// ============================================================
+
+model Payment {
+  id                    Int           @id @default(autoincrement())
+  bookingId             Int           @unique @map("booking_id")
+  stripePaymentIntentId String        @map("stripe_payment_intent_id")
+  stripeCustomerId      String?       @map("stripe_customer_id")
+  status                PaymentStatus @default(pending)
+  amount                Decimal       @db.Decimal(10, 2)
+  refundAmount          Decimal       @default(0) @map("refund_amount") @db.Decimal(10, 2)
+  capturedAt            DateTime?     @map("captured_at")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("payments")
+}
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  bookingId     Int           @unique @map("booking_id")
+  clientId      Int           @map("client_id")
+  invoiceNumber String        @unique @map("invoice_number")
+  lineItems     Json          @map("line_items")
+  subtotal      Decimal       @db.Decimal(10, 2)
+  taxRate       Decimal       @map("tax_rate") @db.Decimal(5, 4)
+  taxAmount     Decimal       @map("tax_amount") @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  status        InvoiceStatus @default(draft)
+  issuedAt      DateTime?     @map("issued_at")
+  dueAt         DateTime?     @map("due_at")
+  paidAt        DateTime?     @map("paid_at")
+  pdfUrl        String?       @map("pdf_url")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  client  Client  @relation(fields: [clientId], references: [id])
+
+  @@map("invoices")
+}
+
+model StaffPayout {
+  id          Int          @id @default(autoincrement())
+  staffId     Int          @map("staff_id")
+  periodStart DateTime     @map("period_start") @db.Date
+  periodEnd   DateTime     @map("period_end") @db.Date
+  totalEarned Decimal      @map("total_earned") @db.Decimal(10, 2)
+  bookingIds  Int[]        @map("booking_ids")
+  status      PayoutStatus @default(pending)
+  paidAt      DateTime?    @map("paid_at")
+  notes       String?
+
+  staff    Staff     @relation(fields: [staffId], references: [id])
+  bookings Booking[]
+
+  @@map("staff_payouts")
+}
+
+// ============================================================
+// VISIT TRACKING
+// ============================================================
+
+model VisitCheckIn {
+  id          Int              @id @default(autoincrement())
+  bookingId   Int              @map("booking_id")
+  staffId     Int              @map("staff_id")
+  type        VisitCheckInType
+  timestamp   DateTime         @default(now())
+  gpsLat      Float?           @map("gps_lat")
+  gpsLng      Float?           @map("gps_lng")
+  photoUrls   String[]         @default([]) @map("photo_urls")
+  note        String?
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@map("visit_check_ins")
+}
+
+// ============================================================
+// SCHEDULING ENGINE
+// ============================================================
+
+model SitterAvailability {
+  id            Int                @id @default(autoincrement())
+  staffId       Int                @map("staff_id")
+  date          DateTime           @db.Date
+  isAvailable   Boolean            @default(false) @map("is_available")
+  source        AvailabilitySource @default(manual)
+  googleEventId String?            @map("google_event_id")
+  notes         String?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, date])
+  @@map("sitter_availability")
+}
+
+model RouteCache {
+  id              Int      @id @default(autoincrement())
+  originLat       Float    @map("origin_lat")
+  originLng       Float    @map("origin_lng")
+  destinationLat  Float    @map("destination_lat")
+  destinationLng  Float    @map("destination_lng")
+  waypointsHash   String   @map("waypoints_hash") // SHA-256 of sorted waypoints
+  waypointsJson   Json     @map("waypoints_json")
+  durationSeconds Int      @map("duration_seconds")
+  distanceMeters  Int      @map("distance_meters")
+  computedAt      DateTime @default(now()) @map("computed_at")
+  expiresAt       DateTime @map("expires_at")
+
+  @@unique([waypointsHash])
+  @@map("route_cache")
+}
+
+model BookingConstraintLog {
+  id                       Int      @id @default(autoincrement())
+  bookingId                Int      @map("booking_id")
+  anchorBookingId          Int?     @map("anchor_booking_id")
+  packageId                Int      @map("package_id")
+  evaluatedRouteJson       Json     @map("evaluated_route_json")
+  estimatedAbsenceMinutes  Int      @map("estimated_absence_minutes")
+  constraintLimitMinutes   Int      @map("constraint_limit_minutes")
+  isFeasible               Boolean  @map("is_feasible")
+  evaluatedAt              DateTime @default(now()) @map("evaluated_at")
+
+  booking        Booking        @relation(fields: [bookingId], references: [id])
+  servicePackage ServicePackage @relation(fields: [packageId], references: [id])
+
+  @@map("booking_constraint_logs")
+}
+
+// ============================================================
+// GOOGLE CALENDAR
+// ============================================================
+
+model GoogleCalendarToken {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique @map("user_id")
+  googleAccountEmail String    @map("google_account_email")
+  accessTokenEnc     String    @map("access_token_enc")    // AES-256 encrypted
+  refreshTokenEnc    String    @map("refresh_token_enc")   // AES-256 encrypted
+  tokenExpiry        DateTime  @map("token_expiry")
+  calendarId         String    @default("primary") @map("calendar_id")
+  webhookChannelId   String?   @map("webhook_channel_id")
+  webhookExpiry      DateTime? @map("webhook_expiry")
+  connectedAt        DateTime  @default(now()) @map("connected_at")
+  isActive           Boolean   @default(true) @map("is_active")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("google_calendar_tokens")
+}
+
+model CalendarEventMap {
+  id            Int           @id @default(autoincrement())
+  bookingId     Int           @map("booking_id")
+  userId        Int           @map("user_id")
+  googleEventId String        @map("google_event_id")
+  calendarId    String        @map("calendar_id")
+  lastSyncedAt  DateTime      @default(now()) @map("last_synced_at")
+  syncDirection SyncDirection @map("sync_direction")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([bookingId, userId])
+  @@map("calendar_event_maps")
+}
+
+model CalendarSyncLog {
+  id         Int                @id @default(autoincrement())
+  userId     Int                @map("user_id")
+  bookingId  Int?               @map("booking_id")
+  action     CalendarSyncAction
+  details    Json?
+  occurredAt DateTime           @default(now()) @map("occurred_at")
+
+  user    User     @relation(fields: [userId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@map("calendar_sync_logs")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id        Int                 @id @default(autoincrement())
+  userId    Int                 @map("user_id")
+  type      String
+  channel   NotificationChannel
+  subject   String?
+  body      String
+  sentAt    DateTime?           @map("sent_at")
+  readAt    DateTime?           @map("read_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// OPERATIONS
+// ============================================================
+
+model IncidentReport {
+  id            Int              @id @default(autoincrement())
+  bookingId     Int              @map("booking_id")
+  staffId       Int              @map("staff_id")
+  description   String
+  severity      IncidentSeverity @default(low)
+  photoUrls     String[]         @default([]) @map("photo_urls")
+  adminReviewed Boolean          @default(false) @map("admin_reviewed")
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@map("incident_reports")
+}
+
+model KeyLog {
+  id         Int       @id @default(autoincrement())
+  clientId   Int       @map("client_id")
+  staffId    Int       @map("staff_id")
+  issuedAt   DateTime  @default(now()) @map("issued_at")
+  returnedAt DateTime? @map("returned_at")
+  notes      String?
+
+  client Client @relation(fields: [clientId], references: [id])
+  staff  Staff  @relation(fields: [staffId], references: [id])
+
+  @@map("key_logs")
+}
+
+// ============================================================
+// MARKETING & MISC
+// ============================================================
+
+model WaitlistLead {
+  id        Int      @id @default(autoincrement())
+  email     String
+  name      String?
+  address   String?
+  locationLat Float? @map("location_lat")
+  locationLng Float? @map("location_lng")
+  zoneType  String?  @map("zone_type")
+  message   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("waitlist_leads")
+}
+
+model TermsAcceptanceLog {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  termsVersion String   @map("terms_version")
+  acceptedAt   DateTime @default(now()) @map("accepted_at")
+  ipAddress    String?  @map("ip_address")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("terms_acceptance_logs")
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  adminUserId Int      @map("admin_user_id")
+  action      String
+  targetType  String   @map("target_type")
+  targetId    Int?     @map("target_id")
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+
+  adminUser User @relation(fields: [adminUserId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model SiteSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("site_settings")
+}
