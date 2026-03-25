@@ -1,54 +1,60 @@
 import { Controller, Get, UseGuards, Req, Res, Post } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 import { CalendarService } from './calendar.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('calendar')
 export class CalendarController {
-  constructor(private readonly calendarService: CalendarService) {}
+  constructor(
+    private readonly calendarService: CalendarService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get('connect')
   @UseGuards(AuthGuard('google-calendar'))
   async connect() {
-    // Redirects to Google
+    // Passport redirects to Google — no body needed
   }
 
   @Get('callback')
   @UseGuards(AuthGuard('google-calendar'))
   async callback(@Req() req, @Res() res) {
-    const user = req.user; 
-    
-    if (user && user.accessToken) {
-      // In a real app, we'd linked this to the logged-in session user's ID.
-      // For now, using a placeholder or extraction from session/JWT if available.
-      const userId = req.user.id || 1; // Fallback to admin for testing
-      const expiryDate = new Date(Date.now() + 3600 * 1000); // 1 hour default
-      
-      await this.calendarService.storeTokens(
-        userId,
-        user.email,
-        user.accessToken,
-        user.refreshToken,
-        expiryDate
-      );
-
-      // Register webhook for real-time sync
-      try {
-        await this.calendarService.registerWebhook(userId);
-      } catch (e) {
-        console.error('Failed to register GCal webhook:', e);
-      }
+    const oauthUser = req.user;
+    if (!oauthUser?.accessToken) {
+      return res.redirect(`${this.config.get('FRONTEND_URL')}/admin/staff?calendar=error`);
     }
 
-    return res.redirect(`${process.env.FRONTEND_URL}/admin/staff?calendar=success`);
+    // The state param carries the userId who initiated the connect flow.
+    // Fallback: parse from cookie set before redirect (handled client-side).
+    const userId = req.query?.state ? parseInt(req.query.state as string, 10) : null;
+    if (!userId) {
+      return res.redirect(`${this.config.get('FRONTEND_URL')}/admin/staff?calendar=error&reason=missing_user`);
+    }
+
+    const expiryDate = new Date(Date.now() + 3600 * 1000);
+    await this.calendarService.storeTokens(
+      userId,
+      oauthUser.email,
+      oauthUser.accessToken,
+      oauthUser.refreshToken,
+      expiryDate,
+    );
+
+    try {
+      await this.calendarService.registerWebhook(userId);
+    } catch (e) {
+      console.error('Webhook registration failed:', e);
+    }
+
+    return res.redirect(`${this.config.get('FRONTEND_URL')}/admin/staff?calendar=connected`);
   }
 
   @Post('webhook')
   async handleWebhook(@Req() req) {
-    const channelId = req.headers['x-goog-channel-id'];
-    const resourceId = req.headers['x-goog-resource-id'];
+    const channelId = req.headers['x-goog-channel-id'] as string;
+    const resourceId = req.headers['x-goog-resource-id'] as string;
     if (channelId && resourceId) {
-       await this.calendarService.handleWebhook(channelId as string, resourceId as string);
+      await this.calendarService.handleWebhook(channelId, resourceId);
     }
     return { success: true };
   }

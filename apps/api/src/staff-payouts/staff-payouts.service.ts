@@ -39,7 +39,7 @@ export class StaffPayoutsService {
     const createdPayouts: any[] = [];
 
     await this.prisma.$transaction(async (tx) => {
-      for (const [staffId, data] of Object.entries(grouped)) {
+      for (const [staffId, data] of Object.entries(grouped) as [string, { total: number; bookingIds: number[] }][]) {
         if (data.total <= 0) continue;
 
         const payout = await tx.staffPayout.create({

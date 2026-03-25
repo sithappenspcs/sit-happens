@@ -1,4 +1,4 @@
-import { Controller, Post, Param, ParseIntPipe, Body, UseGuards, Patch, Get } from '@nestjs/common';
+import { Controller, Post, Param, ParseIntPipe, Body, UseGuards, Patch, Get, Request } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -12,10 +12,11 @@ export class AdminController {
   @Roles('admin')
   @Post('bookings/:id/approve')
   approveBooking(
+    @Request() req,
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { staffId: number }
   ) {
-    return this.adminService.approveBooking(id, body.staffId);
+    return this.adminService.approveBooking(id, body.staffId, req.user.userId);
   }
 
   @Roles('admin')

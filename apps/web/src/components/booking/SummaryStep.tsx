@@ -1,59 +1,86 @@
-import { Button } from "@/components/ui/Button";
+'use client';
+
+import { Button } from '@/components/ui/Button';
+import { Loader2, MapPin, Calendar, PawPrint, Package } from 'lucide-react';
 
 interface SummaryStepProps {
   bookingData: any;
-  onNext: () => void;
   onBack: () => void;
+  onSubmit: () => void;
+  submitting: boolean;
+  error: string | null;
 }
 
-export function SummaryStep({ bookingData, onNext, onBack }: SummaryStepProps) {
+export function SummaryStep({ bookingData, onBack, onSubmit, submitting, error }: SummaryStepProps) {
+  const pkg = bookingData.selectedPackage;
+  const formatDate = (d: Date | null) =>
+    d ? d.toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '—';
+  const formatTime = (t: string | null) =>
+    t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-serif text-sage-900 mb-2">Review Your Booking</h2>
-        <p className="text-warm-600">Please confirm your service details before proceeding to payment.</p>
+        <h2 className="text-2xl font-serif text-sage-900 mb-1">Review & Confirm</h2>
+        <p className="text-warm-600 text-sm">Please review your booking details before submitting.</p>
       </div>
 
-      <div className="bg-warm-50 rounded-2xl p-6 border border-warm-200 space-y-4">
-        <div className="flex justify-between border-b border-warm-200 pb-4">
-          <div>
-            <span className="text-sm font-semibold text-warm-500 uppercase tracking-wider">Service</span>
-            <p className="text-lg font-bold text-sage-900">House Sitting</p>
+      <div className="bg-warm-50 border border-warm-200 rounded-2xl divide-y divide-warm-100 overflow-hidden">
+        {pkg && (
+          <div className="flex items-start gap-4 p-4">
+            <Package className="w-4 h-4 text-warm-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-warm-500 uppercase tracking-wider mb-0.5">Service</p>
+              <p className="text-sm font-semibold text-warm-900">{pkg.name}</p>
+              <p className="text-sm text-warm-600">${Number(pkg.basePrice).toFixed(2)} {pkg.priceUnit?.replace('_', ' ')}</p>
+            </div>
           </div>
-          <div className="text-right">
-            <span className="text-sm font-semibold text-warm-500 uppercase tracking-wider">Base Price</span>
-            <p className="text-lg font-medium text-warm-900">$85.00</p>
+        )}
+
+        <div className="flex items-start gap-4 p-4">
+          <MapPin className="w-4 h-4 text-warm-400 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-warm-500 uppercase tracking-wider mb-0.5">Location</p>
+            <p className="text-sm text-warm-900">{bookingData.address || 'Not specified'}</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 border-b border-warm-200 pb-4">
+        <div className="flex items-start gap-4 p-4">
+          <Calendar className="w-4 h-4 text-warm-400 mt-0.5 flex-shrink-0" />
           <div>
-            <span className="text-sm font-semibold text-warm-500 uppercase tracking-wider">Date & Time</span>
-            <p className="text-warm-900 font-medium">Sat, Mar 28 • 08:00 AM</p>
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-warm-500 uppercase tracking-wider">Location</span>
-            <p className="text-warm-900 font-medium truncate">{bookingData.address || "123 Main St"}</p>
+            <p className="text-xs font-bold text-warm-500 uppercase tracking-wider mb-0.5">Date & Time</p>
+            <p className="text-sm font-semibold text-warm-900">{formatDate(bookingData.date)}</p>
+            <p className="text-sm text-warm-600">Starts at {formatTime(bookingData.startTime)}</p>
           </div>
         </div>
 
-        <div className="border-b border-warm-200 pb-4">
-          <span className="text-sm font-semibold text-warm-500 uppercase tracking-wider">Pets Included</span>
-          <p className="text-warm-900 font-medium">{bookingData.petIds.length > 0 ? `${bookingData.petIds.length} Pets Selected` : "Bella (Golden Retriever)"}</p>
-        </div>
-
-        <div className="flex justify-between items-center pt-2">
-          <span className="text-lg font-bold text-sage-900">Total</span>
-          <span className="text-2xl font-bold text-sage-700">$85.00</span>
+        <div className="flex items-start gap-4 p-4">
+          <PawPrint className="w-4 h-4 text-warm-400 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-warm-500 uppercase tracking-wider mb-0.5">Pets</p>
+            <p className="text-sm text-warm-900">{bookingData.petIds.length} pet{bookingData.petIds.length !== 1 ? 's' : ''} selected</p>
+          </div>
         </div>
       </div>
 
-      <div className="pt-6 flex justify-between items-center border-t border-warm-100 mt-8">
-        <Button variant="outline" onClick={onBack} className="px-8">
-          Back
-        </Button>
-        <Button variant="primary" onClick={onNext} className="px-8">
-          Continue to Payment
+      <div className="bg-sage-50 border border-sage-100 rounded-2xl p-4">
+        <p className="text-xs text-sage-700 font-medium">
+          By confirming, you authorize a hold to be placed on your payment method. You won't be charged until a sitter is assigned and the booking is approved.
+        </p>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-between pt-2">
+        <Button variant="outline" onClick={onBack} disabled={submitting}>Back</Button>
+        <Button variant="primary" onClick={onSubmit} disabled={submitting} className="px-8">
+          {submitting ? (
+            <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Submitting...</>
+          ) : 'Confirm Booking'}
         </Button>
       </div>
     </div>

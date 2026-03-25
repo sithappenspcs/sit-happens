@@ -12,22 +12,18 @@ export class BookingsController {
   @Roles('client')
   @Post()
   async create(@Request() req, @Body() data: any) {
-    return this.service.create({
-      ...data,
-      userId: req.user.userId,
-    });
+    return this.service.create({ ...data, userId: req.user.userId });
   }
 
   @Roles('client')
   @Get()
   async getMyBookings(@Request() req) {
-    // Find client ID mapped to user ID in real flow
-    return this.service.findByClient(req.user.userId);
+    return this.service.findByUserId(req.user.userId);
   }
 
   @Roles('client')
   @Patch(':id/cancel')
   async cancelBooking(@Request() req, @Param('id') id: string) {
-    return this.service.cancelByClient(+id, req.user.userId);
+    return this.service.cancelByUserId(+id, req.user.userId);
   }
 }

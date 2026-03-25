@@ -9,16 +9,17 @@ import { AdminZonesController } from './zones.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { CalendarModule } from '../calendar/calendar.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, PaymentsModule, CalendarModule],
+  imports: [PrismaModule, PaymentsModule, CalendarModule, NotificationsModule],
   controllers: [
-    AdminController, 
-    SettingsController, 
-    AdminStaffController, 
-    AdminClientsController, 
-    AdminZonesController
+    AdminController,
+    SettingsController,
+    AdminStaffController,
+    AdminClientsController,
+    AdminZonesController,
   ],
-  providers: [AdminService, SettingsService]
+  providers: [AdminService, SettingsService],
 })
 export class AdminModule {}

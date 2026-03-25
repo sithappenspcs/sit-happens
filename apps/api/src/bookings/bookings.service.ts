@@ -8,72 +8,111 @@ export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private stripe: StripeService,
-    private notificationsService: NotificationsService
+    private notificationsService: NotificationsService,
   ) {}
 
-  async create(data: any) {
-    // Get client by userId
-    const client = await this.prisma.client.findUnique({ 
-      where: { userId: data.userId },
-      include: { user: true }
+  private async getClientByUserId(userId: number) {
+    const client = await this.prisma.client.findUnique({
+      where: { userId },
+      include: { user: true },
     });
-    if (!client) throw new NotFoundException('Client profile not found');
+    if (!client) throw new NotFoundException('Client profile not found. Please complete your account setup.');
+    return client;
+  }
 
-    // Get package base price
+  async create(data: any) {
+    const client = await this.getClientByUserId(data.userId);
+
     const servicePackage = await this.prisma.servicePackage.findUnique({ where: { id: data.packageId } });
-    if (!servicePackage) throw new NotFoundException('Package not found');
+    if (!servicePackage) throw new NotFoundException('Service package not found');
+
     const basePrice = Number(servicePackage.basePrice);
 
-    // Create Stripe PaymentIntent for pre-auth
-    const intent = await this.stripe.createPaymentIntent(basePrice, 'cad');
+    // Create Stripe PaymentIntent (pre-auth / manual capture)
+    let intentId = 'no_stripe_key';
+    let clientSecret: string | null = null;
+    try {
+      const intent = await this.stripe.createPaymentIntent(basePrice, 'cad');
+      intentId = intent.id;
+      clientSecret = intent.client_secret;
+    } catch (e) {
+      // Stripe not configured in dev — continue without payment
+      console.warn('Stripe not configured, skipping payment intent creation');
+    }
 
-    // Create Booking and nested Payment
     const booking = await this.prisma.booking.create({
       data: {
         clientId: client.id,
         packageId: data.packageId,
         startTime: new Date(data.startTime),
         endTime: new Date(data.endTime),
+        petIds: data.petIds || [],
         status: 'pending',
         basePrice,
         totalCharged: basePrice,
-        payment: {
-          create: {
-            stripePaymentIntentId: intent.id,
-            amount: basePrice,
-            status: 'pending'
-          }
-        }
+        clientNotes: data.clientNotes,
+        ...(intentId !== 'no_stripe_key' && {
+          payment: {
+            create: {
+              stripePaymentIntentId: intentId,
+              amount: basePrice,
+              status: 'pending',
+            },
+          },
+        }),
       },
-      include: { payment: true }
+      include: { payment: true },
     });
 
-    // Notify Admin of new request
-    await this.notificationsService.notifyUser(1, 'new_booking_request', 'EMAIL_NEW_BOOKING_ADMIN', {
-      clientName: client.user.name,
-      packageName: servicePackage.name,
-      startTime: booking.startTime.toLocaleString()
-    }, ['email', 'in_app']);
+    // Find admin user to notify
+    const adminUser = await this.prisma.user.findFirst({ where: { role: 'admin' } });
+    if (adminUser) {
+      await this.notificationsService.notifyUser(adminUser.id, 'new_booking_request', 'EMAIL_NEW_BOOKING_ADMIN', {
+        clientName: client.user.name,
+        packageName: servicePackage.name,
+        startTime: booking.startTime.toLocaleString(),
+      }, ['email', 'in_app']);
+    }
 
-    return { booking, clientSecret: intent.client_secret };
+    return { booking, clientSecret };
   }
 
-  async findByClient(clientId: number) {
+  async findByUserId(userId: number) {
+    const client = await this.prisma.client.findUnique({ where: { userId } });
+    if (!client) return [];
     return this.prisma.booking.findMany({
-      where: { clientId },
-      include: { package: true },
-      orderBy: { startTime: 'asc' },
+      where: { clientId: client.id },
+      include: { package: true, staff: { include: { user: true } } },
+      orderBy: { startTime: 'desc' },
     });
   }
 
-  async cancelByClient(id: number, clientId: number) {
-    const booking = await this.prisma.booking.findFirst({ where: { id, clientId } });
+  async cancelByUserId(bookingId: number, userId: number) {
+    const client = await this.prisma.client.findUnique({ where: { userId } });
+    if (!client) throw new NotFoundException('Client profile not found');
+
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, clientId: client.id },
+      include: { payment: true },
+    });
     if (!booking) throw new NotFoundException('Booking not found');
-    
-    // In real flow: cancel Stripe intent if it's strictly pre-auth and not captured.
+
+    // Cancel Stripe intent if it's pending (not yet captured)
+    if (booking.payment?.stripePaymentIntentId && booking.payment.status === 'pending') {
+      try {
+        await this.stripe.cancelPaymentIntent(booking.payment.stripePaymentIntentId);
+        await this.prisma.payment.update({
+          where: { id: booking.payment.id },
+          data: { status: 'failed' },
+        });
+      } catch (e) {
+        console.warn('Could not cancel Stripe intent:', e);
+      }
+    }
+
     return this.prisma.booking.update({
-      where: { id },
-      data: { status: 'cancelled' },
+      where: { id: bookingId },
+      data: { status: 'cancelled', cancelledAt: new Date() },
     });
   }
 }

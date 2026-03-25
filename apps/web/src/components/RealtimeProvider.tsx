@@ -40,9 +40,19 @@ export const RealtimeProvider = ({ children }: { children: React.ReactNode }) =>
 
     newSocket.on('connect', () => {
       console.log('Connected to real-time gateway');
-      const userId = typeof window !== 'undefined' ? localStorage.getItem('user_id') : null;
-      if (userId) {
-        newSocket.emit('join_room', `user:${userId}`);
+      // Read userId from auth_user object (set by auth.tsx)
+      const authUserRaw = typeof window !== 'undefined' ? localStorage.getItem('auth_user') : null;
+      if (authUserRaw) {
+        try {
+          const authUser = JSON.parse(authUserRaw);
+          if (authUser?.userId) {
+            newSocket.emit('join_room', `user:${authUser.userId}`);
+            // Also join role room for role-based broadcasts
+            if (authUser.role === 'admin') newSocket.emit('join_room', 'admin');
+            else if (authUser.role === 'staff') newSocket.emit('join_room', `staff:${authUser.userId}`);
+            else if (authUser.role === 'client') newSocket.emit('join_room', `client:${authUser.userId}`);
+          }
+        } catch {}
       }
     });
 

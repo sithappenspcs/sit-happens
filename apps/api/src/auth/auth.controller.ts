@@ -15,36 +15,32 @@ export class AuthController {
   @Post('login')
   async login(@Body() body: any) {
     const user = await this.authService.validateUser(body.email, body.password);
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    if (!user) throw new UnauthorizedException('Invalid email or password');
     return this.authService.login(user);
   }
 
   @Post('register')
   async register(@Body() body: any) {
     const { name, email, password, role } = body;
-    const existing = await this.usersService.findByEmail(email);
-    if (existing) {
-      throw new UnauthorizedException('Email already in use');
+    if (!name || !email || !password) {
+      throw new UnauthorizedException('Name, email, and password are required');
     }
+    const existing = await this.usersService.findByEmail(email);
+    if (existing) throw new UnauthorizedException('An account with this email already exists');
+
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await this.usersService.create({
-      name,
-      email,
-      passwordHash,
-      role: role || 'client',
-    });
+    // Use authService.register so it auto-creates the role profile
+    const user = await this.authService.register(name, email, passwordHash, role || 'client');
     return this.authService.login(user);
   }
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
-  async googleAuth(@Request() req) {
-    // initiates the Google OAuth2 login flow
+  async googleAuth() {
+    // Passport redirects to Google
   }
 
-  @Get('google/calendar/callback')
+  @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthRedirect(@Request() req) {
     return this.authService.login(req.user);
@@ -72,4 +68,3 @@ export class AuthController {
     return this.usersService.logTermsAcceptance(req.user.userId, version, req.ip);
   }
 }
-
